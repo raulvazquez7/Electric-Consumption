@@ -18,17 +18,6 @@ yr.2008 <- dbGetQuery(con, "SELECT Date, Time, Sub_metering_1, Sub_metering_2, S
 yr.2009 <- dbGetQuery(con, "SELECT Date, Time, Sub_metering_1, Sub_metering_2, Sub_metering_3, global_active_power FROM yr_2009")
 yr.2010 <- dbGetQuery(con, "SELECT Date, Time, Sub_metering_1, Sub_metering_2, Sub_metering_3, global_active_power FROM yr_2010")
 
-#### check data ####
-str(yr.2007)
-head(yr.2007)
-tail(yr.2007)
-summary(yr.2007)
-head(yr.2008)
-tail(yr.2008)
-str(yr.2009)
-head(yr.2009)
-tail(yr.2009)
-
 #### bind df ####
 df <- bind_rows(yr.2007, yr.2008, yr.2009, yr.2010) #bind df with a complete year
 
@@ -93,7 +82,7 @@ by30 <- dfs %>% group_by(cut(DateTime, "30 min")) %>%
 colnames(by30)[1] <- "DateTime" 
 
 by30$Submeterings <- by30$Sub_metering_1+by30$Sub_metering_2+by30$Sub_metering_3
-by30$lost <- by30$global_active_power-by30$Submeterings
+by30$OtherAreas <- by30$global_active_power-by30$Submeterings
 by30$year <- year(by30$DateTime)
 by30$month <- month(by30$DateTime)
 by30$week <- week(by30$DateTime)
@@ -108,7 +97,7 @@ byhour <- dfs %>% group_by(DateTime=floor_date(DateTime, "hour")) %>%
   dplyr::summarize_at(vars(Sub_metering_1,Sub_metering_2,Sub_metering_3,global_active_power, OtherAreas), funs(sum))
 
 byhour$Submeterings <- byhour$Sub_metering_1+byhour$Sub_metering_2+byhour$Sub_metering_3
-byhour$lost <- byhour$global_active_power-byhour$Submeterings
+byhour$OtherAreas <- byhour$global_active_power-byhour$Submeterings
 byhour$year <- year(byhour$DateTime)
 byhour$month <- month(byhour$DateTime)
 byhour$week <- week(byhour$DateTime)
@@ -123,7 +112,7 @@ byday <- dfs %>% group_by(DateTime=floor_date(DateTime, "day")) %>%
   dplyr::summarize_at(vars(Sub_metering_1,Sub_metering_2,Sub_metering_3, global_active_power, OtherAreas), funs(sum)) #grouping by day
 
 byday$Submeterings <- byday$Sub_metering_1+byday$Sub_metering_2+byday$Sub_metering_3
-byday$lost <- byday$global_active_power-byday$Submeterings
+byday$OtherAreas <- byday$global_active_power-byday$Submeterings
 
 byday$year <- year(byday$DateTime)
 byday$month <- month(byday$DateTime)
@@ -139,7 +128,7 @@ byweek <- dfs %>% group_by(DateTime=floor_date(DateTime, "week")) %>%
   dplyr::summarize_at(vars(Sub_metering_1,Sub_metering_2,Sub_metering_3, global_active_power, OtherAreas), funs(sum))#grouping by week
 
 byweek$Submeterings <- byweek$Sub_metering_1+byweek$Sub_metering_2+byweek$Sub_metering_3
-byweek$lost <- byweek$global_active_power-byweek$Submeterings
+byweek$OtherAreas <- byweek$global_active_power-byweek$Submeterings
 
 byweek$year <- year(byweek$DateTime)
 byweek$month <- month(byweek$DateTime)
@@ -157,7 +146,7 @@ bymonth <- dfs %>% group_by(DateTime=floor_date(DateTime, "month")) %>%
   dplyr::summarize_at(vars(Sub_metering_1,Sub_metering_2,Sub_metering_3, global_active_power, OtherAreas), funs(sum)) #grouping by month
 
 bymonth$Submeterings <- bymonth$Sub_metering_1+bymonth$Sub_metering_2+bymonth$Sub_metering_3
-bymonth$lost <- bymonth$global_active_power-bymonth$Submeterings
+bymonth$OtherAreas <- bymonth$global_active_power-bymonth$Submeterings
 
 bymonth$year <- year(bymonth$DateTime)
 bymonth$month <- month(bymonth$DateTime)
@@ -363,15 +352,30 @@ plot.ts(tsweek[,"global_active_power"])
 plot.ts(tsweek[,"Submeterings"])
 
 ## week ##
-tsweek[,"Submeterings"] %>% decompose() %>%
+tsweek[,"global_active_power"] %>% stl(s.window = 52) %>%
   autoplot() + xlab("Year") +
   ggtitle("Submeterings decomposition
-          of weeks")
+          of months")
 
-tsweek[,"Sub_metering_3"] %>% decompose() %>%
+tsweek[,"Sub_metering_1"] %>% stl(s.window = 52) %>%
   autoplot() + xlab("Year") +
-  ggtitle("Submeterings decomposition
-          of weeks")
+  ggtitle("Submetering 1 decomposition
+          of months")
+
+tsweek[,"Sub_metering_2"] %>% stl(s.window = 52) %>%
+  autoplot() + xlab("Year") +
+  ggtitle("Submetering 2 decomposition
+          of months")
+
+tsweek[,"Sub_metering_3"] %>% stl(s.window = 52) %>%
+  autoplot() + xlab("Year") +
+  ggtitle("Submetering 3 decomposition
+          of months")
+
+tsweek[,"OtherAreas"] %>% stl(s.window = 52) %>%
+  autoplot() + xlab("Year") +
+  ggtitle("Other Areas decomposition
+          of months")
 
 ## month ##
 tsmonth[,"global_active_power"] %>% stl(s.window = 12) %>%
@@ -394,10 +398,58 @@ tsmonth[,"Sub_metering_3"] %>% stl(s.window = 12) %>%
   ggtitle("Submetering 3 decomposition
           of months")
 
-tsmonth[,"OtherAreas"] %>% decompose() %>%
+tsmonth[,"OtherAreas"] %>% stl(s.window = 12) %>%
   autoplot() + xlab("Year") +
   ggtitle("Other Areas decomposition
           of months")
+
+#### metrics ####
+fitgap <- stl(tsmonth[,"global_active_power"], s.window = 12)
+fitsub1 <- stl(tsmonth[,"Sub_metering_1"], s.window = 12)
+fitsub2 <- stl(tsmonth[,"Sub_metering_2"], s.window = 12)
+fitsub3 <- stl(tsmonth[,"Sub_metering_3"], s.window = 12)
+fitsubs <- stl(tsmonth[,"Submeterings"], s.window = 12)
+fitother <- stl(tsmonth[,"OtherAreas"], s.window = 12)
+
+remaindergap <- fitgap$time.series[,3]
+remaindergap <- as.data.frame(remaindergap)
+
+remaindersub1 <- fitsub1$time.series[,3]
+remaindersub1 <- as.data.frame(remaindersub1)
+
+remaindersub2 <- fitsub2$time.series[,3]
+remaindersub2 <- as.data.frame(remaindersub2)
+
+remaindersub3 <- fitsub3$time.series[,3]
+remaindersub3 <- as.data.frame(remaindersub3)
+
+remaindersubs <- fitsubs$time.series[,3]
+remaindersubs <- as.data.frame(remaindersubs)
+
+remainderother <- fitother$time.series[,3]
+remainderother <- as.data.frame(remainderother)
+
+metrics <- c()
+metrics$GPA <- mean(abs(remaindergap$x))
+metrics$SUB1 <- mean(abs(remaindersub1$x))
+metrics$SUB2 <- mean(abs(remaindersub2$x))
+metrics$SUB3 <- mean(abs(remaindersub3$x))
+metrics$SUBS <- mean(abs(remaindersubs$x))
+metrics$OTHER <- mean(abs(remainderother$x))
+
+metrics <- as.data.frame(metrics) 
+
+metrics <- gather(metrics) #pivot table
+
+ggplot(data = metrics) +
+  aes(x = key, weight = value) +
+  geom_bar(fill = "#0c4c8a") +
+  labs(title = "MAE per variable ",
+    x = "Variables",
+    y = "Error",
+    subtitle = "by Month") +
+  theme_minimal()
+
 
 
 

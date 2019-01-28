@@ -1,5 +1,5 @@
 #### load libraries ####
-pacman::p_load("RMySQL","dplyr", "tidyr","lubridate","esquisse","padr","imputeTS","ggplot2", "chron","plotly", "forecast")
+pacman::p_load("RMySQL","dplyr", "tidyr","lubridate","esquisse","padr","imputeTS","ggplot2", "chron","plotly", "forecast","tseries")
 
 #### read SQL ####
 con = dbConnect(MySQL(),
@@ -308,10 +308,7 @@ plot_ly(houseSummer, x = ~houseSummer$DateTime, y = ~houseSummer$Sub_metering_1,
          xaxis = list(title = "Time"),
          yaxis = list (title = "Power (watt-hours)"))
 
-#### Forecasting ####
-
-## create df to forecast ##
-
+#### TIME SERIES ####
 
 ## NULL season cause character ##
 byhour$Season <- NULL 
@@ -320,10 +317,10 @@ byweek$Season <- NULL
 bymonth$Season <- NULL 
 
 ## by hour ##
-tshours <- ts(byhour, frequency = )
+tshour <- msts(byhour, seasonal.periods = c())
 
 ## by day ##
-tsday <- ts(byday, frequency = 365.25*7)
+tsday <- msts(byday, seasonal.periods = c(7,356.25))
 
 ## by week ##
 tsweek <- ts(byweek,start = c(2007,1), end = c(2010, 47), frequency = 52)
@@ -350,6 +347,7 @@ plot.ts(tsweek[,"Sub_metering_2"])
 plot.ts(tsweek[,"Sub_metering_3"])
 plot.ts(tsweek[,"global_active_power"])
 plot.ts(tsweek[,"Submeterings"])
+
 
 ## week ##
 tsweek[,"global_active_power"] %>% stl(s.window = 52) %>%
@@ -380,7 +378,7 @@ tsweek[,"OtherAreas"] %>% stl(s.window = 52) %>%
 ## month ##
 tsmonth[,"global_active_power"] %>% stl(s.window = 12) %>%
   autoplot() + xlab("Year") +
-  ggtitle("Submeterings decomposition
+  ggtitle("GAP decomposition
           of months")
 
 tsmonth[,"Sub_metering_1"] %>% stl(s.window = 12) %>%
@@ -403,54 +401,65 @@ tsmonth[,"OtherAreas"] %>% stl(s.window = 12) %>%
   ggtitle("Other Areas decomposition
           of months")
 
-#### metrics ####
-fitgap <- stl(tsmonth[,"global_active_power"], s.window = 12)
-fitsub1 <- stl(tsmonth[,"Sub_metering_1"], s.window = 12)
-fitsub2 <- stl(tsmonth[,"Sub_metering_2"], s.window = 12)
-fitsub3 <- stl(tsmonth[,"Sub_metering_3"], s.window = 12)
-fitsubs <- stl(tsmonth[,"Submeterings"], s.window = 12)
-fitother <- stl(tsmonth[,"OtherAreas"], s.window = 12)
+#### REMAINDER PER GRANULARITY (GAP) ####
+monthgap <- stl(tsmonth[,"global_active_power"], s.window = 12)
+weekgap <- stl(tsweek[,"global_active_power"], s.window = 12)
+daygap <- stl(tsday[,"global_active_power"], s.window = 12)
+hourgap <- stl(tshour[,"global_active_power"], s.window = 12)
 
-remaindergap <- fitgap$time.series[,3]
-remaindergap <- as.data.frame(remaindergap)
+monthremainder <- monthgap$time.series[,3]
+weekremainder <- weekgap$time.series[,3]
+dayremainder <- daygap$time.series[,3]
+hourremainder <- hourgap$time.series[,3]
 
-remaindersub1 <- fitsub1$time.series[,3]
-remaindersub1 <- as.data.frame(remaindersub1)
+monthremainder <- as.data.frame(monthremainder)
+weekremainder <- as.data.frame(weekremainder)
+dayremainder <- as.data.frame(dayremainder)
+hourremainder <- as.data.frame(hourremainder)
 
-remaindersub2 <- fitsub2$time.series[,3]
-remaindersub2 <- as.data.frame(remaindersub2)
+metricGAP <- c()
+metricGAP$Month <- mean(abs(monthremainder$x))/mean(tsmonth[,5])
+metricGAP$Week <- mean(abs(weekremainder$x))/mean(tsweek[,5])
+metricGAP$Day <- mean(abs(dayremainder$x))/mean(tsday[,5])
+metricGAP$Hour <- mean(abs(hourremainder$x))/mean(tshour[,5])
 
-remaindersub3 <- fitsub3$time.series[,3]
-remaindersub3 <- as.data.frame(remaindersub3)
+metricGAP <- as.data.frame(metricGAP) 
+metricGAP <- gather(metricGAP) #pivot table
 
-remaindersubs <- fitsubs$time.series[,3]
-remaindersubs <- as.data.frame(remaindersubs)
-
-remainderother <- fitother$time.series[,3]
-remainderother <- as.data.frame(remainderother)
-
-metrics <- c()
-metrics$GPA <- mean(abs(remaindergap$x))
-metrics$SUB1 <- mean(abs(remaindersub1$x))
-metrics$SUB2 <- mean(abs(remaindersub2$x))
-metrics$SUB3 <- mean(abs(remaindersub3$x))
-metrics$SUBS <- mean(abs(remaindersubs$x))
-metrics$OTHER <- mean(abs(remainderother$x))
-
-metrics <- as.data.frame(metrics) 
-
-metrics <- gather(metrics) #pivot table
-
-ggplot(data = metrics) +
+ggplot(data = metricGAP) +
   aes(x = key, weight = value) +
   geom_bar(fill = "#0c4c8a") +
-  labs(title = "MAE per variable ",
-    x = "Variables",
-    y = "Error",
-    subtitle = "by Month") +
-  theme_minimal()
+  labs(title = "MAE per granularity ",
+       x = "Variables",
+       y = "Error",
+       subtitle = "GAP") +
+  theme_minimal() #ramdom %
 
+#### FORECASTING ####
 
+## train and test ##
+train <- window(tsmonth[,"global_active_power"], start = c(2007,1), end = c(2010,1))
+test <- window(tsmonth[,"global_active_power"], start = c(2010,2))
+
+## HW GAP ##
+hwModel <- HoltWinters(train)
+plot(hwModel)
+
+predictHW <- forecast(hwModel, h = 10, prediction.interval = T, level = 0,95)
+
+accuracy(predictHW, test)
+
+#### ARIMA GAP ####
+arimaModel <- auto.arima(train)
+
+predictArima <- forecast(arimaModel, h = 10)
+
+accuracy(predictArima, test)
+
+## plot models ##
+autoplot(tsmonth[,"global_active_power"], series = "Real Gap")+
+  autolayer(predictArima, series = "Arima Gap", PI = FALSE)+
+  autolayer(predictHW, series = "HW Gap", PI = FALSE)
 
 
 

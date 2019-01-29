@@ -1,5 +1,5 @@
 #### load libraries ####
-pacman::p_load("RMySQL","dplyr", "tidyr","lubridate","esquisse","padr","imputeTS","ggplot2", "chron","plotly", "forecast","tseries")
+pacman::p_load("RMySQL","dplyr", "tidyr","lubridate","esquisse","padr","imputeTS","ggplot2", "chron","plotly", "forecast","tseries","zoo","scales")
 
 #### read SQL ####
 con = dbConnect(MySQL(),
@@ -75,6 +75,27 @@ dfs$Season <- ifelse(dfs$month == 12|dfs$month == 1|dfs$month == 2,"Winter",
                      ifelse(dfs$month == 3|dfs$month == 4|dfs$month == 5, "Spring",
                             ifelse(dfs$month == 6|dfs$month == 7|dfs$month == 8, "Summer", "Autumn"))) #season info
 #### Sampling ###
+
+## Loundry Room ##
+loundryRoom <- select(dfs, 2,5)
+loundryRoom <- as.data.frame(loundryRoom)
+loundryRoom$year <- year(loundryRoom$DateTime)
+
+loundryRoom$fridge <- ifelse(
+  loundryRoom$Sub_metering_2 < 43,
+  ifelse(
+    loundryRoom$Sub_metering_2 == 0,
+    "Stopped fridge",
+    "Fridge"),
+  "Other") #30% fridge 69%sin consumo %
+
+sum(loundryRoom$Sub_metering_2)
+
+fridge <- filter(loundryRoom, fridge == "Fridge")
+sum(fridge$Sub_metering_2) #0,88
+
+others <- filter(loundryRoom, fridge == "Other")
+sum(others$Sub_metering_2) #0,11
 
 ## by30 min ##
 by30 <- dfs %>% group_by(cut(DateTime, "30 min")) %>%
@@ -238,9 +259,10 @@ plot_ly(byweek, x = ~byweek$DateTime, y = ~byweek$Sub_metering_1, #plot week
 by2007 <- filter(bymonth, year == 2007)
 by2008 <- filter(bymonth, year == 2008)
 by2009 <- filter(bymonth, year == 2009)
+by2010 <- filter(bymonth, year == 2010)
 august2008 <- filter(byhour, year == 2008, month == 8) #holidays 2008
 
-years.month <- bind_rows(by2007, by2008, by2009)
+years.month <- bind_rows(by2007, by2008, by2009, by2010)
 
 plot_ly(by2007, x = ~by2007$DateTime, y = ~by2007$Sub_metering_1, #plot 2007
         name = 'Kitchen', type = 'scatter', mode = 'lines') %>%
@@ -317,7 +339,7 @@ byweek$Season <- NULL
 bymonth$Season <- NULL 
 
 ## by hour ##
-tshour <- msts(byhour, seasonal.periods = c())
+tshour <- ts(byhour, frequency = 8760)
 
 ## by day ##
 tsday <- msts(byday, seasonal.periods = c(7,356.25))
@@ -328,8 +350,11 @@ tsweek <- ts(byweek,start = c(2007,1), end = c(2010, 47), frequency = 52)
 ## by month ##
 tsmonth <- ts(bymonth, start = c(2007,1), end = c(2010,11), frequency = 12)
 
+## by 2010 ##
+ts2010 <- ts(by2010, frequency = 1)
+
 ## ecplore ts ##
-tshours
+tshour
 tsday
 tsweek
 tsmonth
@@ -446,9 +471,10 @@ hwModel <- HoltWinters(train)
 plot(hwModel)
 
 predictHW <- forecast(hwModel, h = 10, prediction.interval = T, level = 0,95)
+mpredictHW <- forecast(hwModel, h = 10, prediction.interval = T, level = 0,95, seasonal = "multiplicative")
 
 accuracy(predictHW, test)
-
+accuracy(mpredictHW, test)
 #### ARIMA GAP ####
 arimaModel <- auto.arima(train)
 
@@ -459,7 +485,17 @@ accuracy(predictArima, test)
 ## plot models ##
 autoplot(tsmonth[,"global_active_power"], series = "Real Gap")+
   autolayer(predictArima, series = "Arima Gap", PI = FALSE)+
-  autolayer(predictHW, series = "HW Gap", PI = FALSE)
+  autolayer(predictHW, series = "Additive HW Gap", PI = FALSE)+
+  autolayer(mpredictHW, series = "Multiplicative HW Gap", PI = FALSE)+
+  xlab("Years") +
+  ylab("Electric Consumption (watts/hour)") +
+  ggtitle("Models with month Granularity") +
+  guides(colour=guide_legend(title="models"))
+
+
+  
+
+
 
 
 

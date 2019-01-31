@@ -521,6 +521,7 @@ predictHIbridI <- forecast(hibridModelI, h = 18)
 accuracy(predictHibrid, testGAP) #worst results
 accuracy(predictHIbridI, testGAP) #worst results
 
+
 ## Plot multiple models models ##
 autoplot(tsGAP[,"GAP"], series = "Real Gap")+
   autolayer(predictArimaGAP, series = "Arima Gap", PI = FALSE)+
@@ -533,14 +534,22 @@ autoplot(tsGAP[,"GAP"], series = "Real Gap")+
 
 #### FINAL VISUALIZATION ####
 
-## Plot multiple models models ##
+## cut to plot it ##
+shortened <- window(GAPmpredictHW$mean, start= c(2010, 10))
+
+str(GAPmpredictHW$mean)
+
 autoplot(tsGAP[,"GAP"], series = "Real Gap")+
-  autolayer(GAPmpredictHW, series = "Holt Winters Gap", PI = FALSE)+
+  autolayer(shortened, series = "Holt Winters Gap", PI = FALSE)+
   xlab("Years") +
   ylab("Electric Consumption (watts/hour)") +
   ggtitle("Model with month Granularity") +
   guides(colour=guide_legend(title="Model"))
 
+
+#### POWER BI ####
+
+write.csv(tsGAP, file = "TimeSeries.csv")
 
 
 

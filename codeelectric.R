@@ -16,7 +16,8 @@ pacman::p_load("RMySQL",
                "zoo",
                "scales",
                "tidyquant",
-               "xts")
+               "xts",
+               "forecastHybrid")
 
 ## Read SQL ##
 con = dbConnect(MySQL(),
@@ -222,7 +223,7 @@ ggplot(data = bymonth, aes(x = DateTime)) +
 ## Subset and Plot one day to undersand behaviors of the family ##
 houseDay <- filter(by30, year == 2008 & month == 1 & day == 9) #subset 09/01/2008
 
-plot_ly(houseDay, x = ~houseDay$DateTime, y = ~houseDay$Sub_metering_1,  #plot 3 submeters in 9/01/2008
+plot_ly(houseDay, x = ~houseDay$DateTime, y = ~houseDay$Sub_metering_1,  #plot 3 submeters and GAP in 9/01/2008
         name = 'Kitchen', type = 'scatter', mode = 'lines') %>% 
   add_trace(y = ~houseDay$Sub_metering_2,
             name = 'Laundry Room', mode = 'lines') %>%
@@ -237,7 +238,7 @@ plot_ly(houseDay, x = ~houseDay$DateTime, y = ~houseDay$Sub_metering_1,  #plot 3
 ## Subset and plot Weeks to undersand behaviors of the family ##
 houseWeek <- filter(by30, year == 2008 & week == 1) #subset 1st week 2008
 
-plot_ly(houseWeek, x = ~houseWeek$DateTime, y = ~houseWeek$Sub_metering_1,  #plot 3 submeters in 1st week 2008
+plot_ly(houseWeek, x = ~houseWeek$DateTime, y = ~houseWeek$Sub_metering_1,  #plot 3 submeters and GAP in 1st week 2008
         name = 'Kitchen', type = 'scatter', mode = 'lines') %>% 
   add_trace(y = ~houseWeek$Sub_metering_2,
             name = 'Laundry Room', mode = 'lines') %>%
@@ -251,7 +252,7 @@ plot_ly(houseWeek, x = ~houseWeek$DateTime, y = ~houseWeek$Sub_metering_1,  #plo
 
 houseWeek2009 <- filter(by30, year == 2009 & week == 1) #subset 1st week 2009
 
-plot_ly(houseWeek2009, x = ~houseWeek2009$DateTime, y = ~houseWeek2009$Sub_metering_1,  #plot 3 sub in 1st week 2009
+plot_ly(houseWeek2009, x = ~houseWeek2009$DateTime, y = ~houseWeek2009$Sub_metering_1,  #plot 3 sub amnd GAP in 1st week 2009
         name = 'Kitchen', type = 'scatter', mode = 'lines') %>% 
   add_trace(y = ~houseWeek2009$Sub_metering_2,
             name = 'Laundry Room', mode = 'lines') %>%
@@ -391,7 +392,7 @@ tsweek[,"global_active_power"] %>% stl(s.window = 52) %>%
   ggtitle("Gap decomposition
           by week")
 
-## GAP decomposition by month with STL ##
+## ts month GAP decomposition by month with STL ##
 tsmonth[,"global_active_power"] %>% stl(s.window = 12) %>%
   autoplot() + xlab("Year") +
   ggtitle("GAP decomposition
@@ -441,10 +442,8 @@ test <- window(tsmonth[,"global_active_power"], start = c(2010,2))
 hwModel <- HoltWinters(train)
 plot(hwModel)
 
-apredictHW <- forecast(hwModel, h = 10, seasonal = "additive")
 mpredictHW <- forecast(hwModel, h = 10, seasonal = "multiplicative")
 
-accuracy(apredictHW, test)
 accuracy(mpredictHW, test)
 
 ## ARIMA ##
@@ -459,12 +458,12 @@ accuracy(predictArima, test)
 ## Plot models 1st Forecast ##
 autoplot(tsmonth[,"global_active_power"], series = "Real Gap")+
   autolayer(predictArima, series = "Arima Gap", PI = FALSE)+
-  autolayer(apredictHW, series = "Additive HW Gap", PI = FALSE)+
-  autolayer(mpredictHW, series = "Multiplicative HW Gap", PI = FALSE)+
+  autolayer(mpredictHW, series = "Holt Winters Gap", PI = FALSE)+
   xlab("Years") +
   ylab("Electric Consumption (watts/hour)") +
   ggtitle("Models with month Granularity") +
   guides(colour=guide_legend(title="models"))
+
 
 #### FORECAST WITHOUT OUTLIER (Holidays of August 2008) ####
 
@@ -478,10 +477,18 @@ dfoutliers <- ifelse(outliers$global_active_power < 206000,
 dfoutliers <- as.data.frame(dfoutliers)
 dfoutliers$DateTime <- outliers$DateTime #create DateTime column
 names(dfoutliers)[1]<- "GAP"
+dfoutliers$Year <- year(dfoutliers$DateTime)
+dfoutliers$Month <- month(dfoutliers$DateTime)
 
 ## Time Series ##
 tsGAP <- ts(dfoutliers, start = c(2007,1), end = c(2010,10), frequency = 12) 
 plot.ts(tsGAP[,"GAP"])
+
+## tsGAP decomposition by month with STL ##
+tsGAP[,"GAP"] %>% stl(s.window = 12) %>%
+  autoplot() + xlab("Year") +
+  ggtitle("GAP decomposition
+          by month")
   
 ## Train and Test ##
 trainGAP <- window(tsGAP[,"GAP"], start = c(2007,1), end = c(2010,1))
@@ -491,30 +498,56 @@ testGAP <- window(tsGAP[,"GAP"], start = c(2010,2))
 hwModelGAP <- HoltWinters(trainGAP)
 plot(hwModelGAP)
 
-GAPpredictHW <- forecast(hwModelGAP, h = 10, seasonal = "additive")
-GAPmpredictHW <- forecast(hwModelGAP, h = 10, seasonal = "multiplicative")
+GAPmpredictHW <- forecast(hwModelGAP, h = 18, seasonal = "multiplicative") # Best Model
 
-accuracy(GAPpredictHW, testGAP)
 accuracy(GAPmpredictHW, testGAP)
 
 #### ARIMA GAP ####
 arimaModelGAP <- auto.arima(trainGAP)
 
-predictArimaGAP <- forecast(arimaModelGAP, h = 10)
+predictArimaGAP <- forecast(arimaModelGAP, h = 18)
 
 plot(predictArimaGAP)
 
 accuracy(predictArimaGAP, testGAP)
 
-## Plot definitive models ##
+## Hibrid Model ##
+hibridModel <- hybridModel(trainGAP, weights = "equal")
+hibridModelI <- hybridModel(trainGAP, weights = "insample")
+
+predictHibrid <- forecast(hibridModel, h = 18)
+predictHIbridI <- forecast(hibridModelI, h = 18)
+
+accuracy(predictHibrid, testGAP) #worst results
+accuracy(predictHIbridI, testGAP) #worst results
+
+## Plot multiple models models ##
 autoplot(tsGAP[,"GAP"], series = "Real Gap")+
   autolayer(predictArimaGAP, series = "Arima Gap", PI = FALSE)+
-  autolayer(GAPpredictHW, series = "Additive HW Gap", PI = FALSE)+
-  autolayer(GAPmpredictHW, series = "Multiplicative HW Gap", PI = FALSE)+
+  autolayer(GAPmpredictHW, series = "Holt Winters Gap", PI = FALSE)+
+  autolayer(predictHIbridI, series = "Hybrid Model", PI = FALSE)+
   xlab("Years") +
   ylab("Electric Consumption (watts/hour)") +
   ggtitle("Models with month Granularity") +
   guides(colour=guide_legend(title="models"))
+
+#### FINAL VISUALIZATION ####
+
+## Plot multiple models models ##
+autoplot(tsGAP[,"GAP"], series = "Real Gap")+
+  autolayer(GAPmpredictHW, series = "Holt Winters Gap", PI = FALSE)+
+  xlab("Years") +
+  ylab("Electric Consumption (watts/hour)") +
+  ggtitle("Model with month Granularity") +
+  guides(colour=guide_legend(title="Model"))
+
+
+
+
+
+
+
+
 
 
 

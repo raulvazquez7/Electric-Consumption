@@ -25,4 +25,9 @@ Language used: R programming - Reporting tools for dashboard creation: Power BI 
 - Model Hybrid Forecasting
 ### 5. ACCURACY AND CONFIDENCE ANALYSIS
 
-VISUALIZATION TOOL: aut
+### FINAL PRODUCT: DASHBOARD IN TABLEAU
+The final product was a Dashboard in Tableau that simulates an Smart Screen with several features:
+- Consumption information by day, time and area of the house.
+- Monetary information on consumption, average prices and invoice in real time.
+- Analysis of task recommendations according to "peak hours" to generate savings.
+- Prediction of consumption.
